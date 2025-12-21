@@ -13,21 +13,17 @@ import threading
 import queue
 
 import sys
+from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from config import (
     LFM2_AUDIO_MODEL, LFM2_AUDIO_ENCODER, LFM2_AUDIO_DECODER,
-    RUNNERS_DIR, AUDIO_SAMPLE_RATE, AUDIO_CHUNK_DURATION
+     AUDIO_SAMPLE_RATE, AUDIO_CHUNK_DURATION
 )
 
 logger = logging.getLogger(__name__)
 
 
 class AudioEngine:
-    """
-    Handles voice input and transcription using LFM2-Audio.
-    All audio processing happens locally on-device.
-    """
-    
     def __init__(
         self,
         model_path: Optional[Path] = None,
@@ -38,8 +34,7 @@ class AudioEngine:
         self.model_path = model_path or LFM2_AUDIO_MODEL
         self.encoder_path = encoder_path or LFM2_AUDIO_ENCODER
         self.decoder_path = decoder_path or LFM2_AUDIO_DECODER
-        self.runner_path = runner_path or RUNNERS_DIR
-        
+        self.runner_path = runner_path or AUDIO_RUNNERS_DIR  # Use audio-specific path
         # Find llama binary
         self.llama_bin = self._find_llama_binary()
         
@@ -49,23 +44,45 @@ class AudioEngine:
         
         logger.info("Audio Engine initialized")
     
+    
     def _find_llama_binary(self) -> Optional[Path]:
-        """Find the llama.cpp binary for audio"""
-        possible_names = ["llama-cli", "llama-cpp", "main", "llama"]
+        """Find the llama.cpp binary for AUDIO transcription"""
         
-        for name in possible_names:
+        # For audio, we need the special LFM2-Audio runner
+        audio_binary_names = [
+            "llama-lfm2-audio",  # Primary audio binary
+            "llama-mtmd-cli",    # Alternative multimodal binary
+        ]
+        
+        # 1. Check in runners directory
+        for name in audio_binary_names:
             bin_path = self.runner_path / name
-            if bin_path.exists():
+            if bin_path.exists() and os.access(bin_path, os.X_OK):
+                logger.info(f"Found audio binary: {bin_path}")
                 return bin_path
         
-        # Check if llama.cpp is installed globally
-        import shutil
-        for name in possible_names:
-            if shutil.which(name):
-                return Path(shutil.which(name))
+        # 2. Check in subdirectories of runners (like lfm2-audio-macos-arm64/)
+        if self.runner_path.exists():
+            for subdir in self.runner_path.iterdir():
+                if subdir.is_dir():
+                    for name in audio_binary_names:
+                        bin_path = subdir / name
+                        if bin_path.exists() and os.access(bin_path, os.X_OK):
+                            logger.info(f"Found audio binary in subdir: {bin_path}")
+                            return bin_path
         
+        # 3. Check if installed globally
+        import shutil
+        for name in audio_binary_names:
+            system_path = shutil.which(name)
+            if system_path:
+                logger.info(f"Found system audio binary: {system_path}")
+                return Path(system_path)
+        
+        logger.warning("Audio binary not found - voice input will be disabled")
         return None
-    
+
+
     def transcribe_file(self, audio_path: Path) -> str:
         """
         Transcribe an audio file to text.
@@ -210,13 +227,14 @@ class AudioEngine:
             wf.setframerate(AUDIO_SAMPLE_RATE)
             wf.writeframes(audio.tobytes())
     
-    def is_available(self) -> bool:
-        """Check if audio model is ready"""
-        return (
-            self.llama_bin is not None and
-            self.model_path.exists() and
-            self.encoder_path.exists()
-        )
+        def is_available(self) -> bool:
+            """Check if audio model is ready"""
+            return (
+                self.llama_bin is not None and
+                self.llama_bin.exists() and
+                self.model_path.exists() and
+                self.encoder_path.exists()
+            )
     
     def list_devices(self) -> list:
         """List available audio input devices"""

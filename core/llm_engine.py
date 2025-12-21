@@ -1,14 +1,13 @@
 """
-LLM Engine - Local LFM2 inference for answer generation
-Uses llama.cpp for efficient on-device inference.
+LLM Engine - Text generation using LFM2-1.2B
+Generates answers using llama.cpp locally.
 """
-import subprocess
-import json
-import logging
-import tempfile
-from pathlib import Path
-from typing import Optional, Dict, Any
 import os
+import subprocess
+import tempfile
+import logging
+from pathlib import Path
+from typing import Optional
 
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -22,187 +21,192 @@ logger = logging.getLogger(__name__)
 
 class LLMEngine:
     """
-    Handles local LLM inference using LFM2 via llama.cpp.
-    All processing happens on-device, nothing is sent to the cloud.
+    Handles text generation using LFM2-1.2B via llama.cpp.
+    All inference happens locally on-device.
     """
     
     def __init__(
         self,
         model_path: Optional[Path] = None,
-        runner_path: Optional[Path] = None
+        runner_path: Optional[Path] = None,
+        max_new_tokens: int = MAX_NEW_TOKENS,
+        temperature: float = TEMPERATURE
     ):
         self.model_path = model_path or LFM2_TEXT_MODEL
         self.runner_path = runner_path or RUNNERS_DIR
+        self.max_new_tokens = max_new_tokens
+        self.temperature = temperature
         
-        # Find llama-cli or llama.cpp binary
+        # Find llama binary
         self.llama_bin = self._find_llama_binary()
-        
-        if not self.model_path.exists():
-            raise FileNotFoundError(
-                f"Model not found: {self.model_path}\n"
-                "Please download the LFM2 GGUF model from HuggingFace."
-            )
         
         logger.info(f"LLM Engine initialized with {self.model_path.name}")
     
     def _find_llama_binary(self) -> Path:
-        """Find the llama.cpp binary"""
-        # Check common names
-        possible_names = [
-            "llama-cli",
-            "llama-cpp",
-            "main",
-            "llama",
+        """Find the llama.cpp binary for TEXT generation.
+
+        Prefers llama-completion over llama-cli because it's designed for
+        non-interactive single-turn completions.
+        """
+        import shutil
+
+        # 1. Prefer llama-completion for non-interactive use
+        system_completion = shutil.which("llama-completion")
+        if system_completion:
+            logger.info(f"Found system llama-completion: {system_completion}")
+            return Path(system_completion)
+
+        # 2. Check common homebrew locations for llama-completion
+        homebrew_paths = [
+            Path("/opt/homebrew/bin/llama-completion"),
+            Path("/usr/local/bin/llama-completion"),
         ]
-        
-        # Check in runners directory
-        for name in possible_names:
+        for p in homebrew_paths:
+            if p.exists():
+                logger.info(f"Found homebrew llama-completion: {p}")
+                return p
+
+        # 3. Fall back to llama-cli if llama-completion not found
+        system_llama = shutil.which("llama-cli")
+        if system_llama:
+            logger.info(f"Found system llama-cli: {system_llama}")
+            return Path(system_llama)
+
+        # 4. Check in runners directory for standard llama binaries
+        standard_names = ["llama-completion", "llama-cli", "llama-cpp", "main", "llama"]
+        for name in standard_names:
             bin_path = self.runner_path / name
             if bin_path.exists() and os.access(bin_path, os.X_OK):
+                logger.info(f"Found llama binary in runners: {bin_path}")
                 return bin_path
-        
-        # Check if installed globally
-        for name in possible_names:
-            result = subprocess.run(
-                ["which", name],
-                capture_output=True,
-                text=True
-            )
-            if result.returncode == 0:
-                return Path(result.stdout.strip())
-        
+
         raise FileNotFoundError(
-            f"llama.cpp binary not found in {self.runner_path}\n"
-            "Please download from HuggingFace or install llama.cpp."
+            "llama-completion or llama-cli not found for text generation.\n"
+            "Install with: brew install llama.cpp"
         )
     
-    def generate(
-        self,
-        prompt: str,
-        max_tokens: int = MAX_NEW_TOKENS,
-        temperature: float = TEMPERATURE,
-        stop_sequences: Optional[list] = None
-    ) -> str:
-        """
-        Generate text using local LLM.
+    def generate(self, prompt: str, max_tokens: int = None, temperature: float = None) -> str:
+        """Generate text from prompt using a temp file to avoid shell escaping issues"""
+        max_tokens = max_tokens or self.max_new_tokens
+        temperature = temperature or self.temperature
         
-        Args:
-            prompt: The input prompt
-            max_tokens: Maximum tokens to generate
-            temperature: Sampling temperature (0.0 = deterministic)
-            stop_sequences: List of sequences to stop generation
-        
-        Returns:
-            Generated text response
-        """
-        # Build llama.cpp command
-        cmd = [
-            str(self.llama_bin),
-            "-m", str(self.model_path),
-            "-p", prompt,
-            "-n", str(max_tokens),
-            "--temp", str(temperature),
-            "-c", "4096",  # Context size
-            "--no-display-prompt",  # Don't echo the prompt
-        ]
-        
-        # Add stop sequences if provided
-        if stop_sequences:
-            for seq in stop_sequences:
-                cmd.extend(["--stop", seq])
+        # Write prompt to temp file (avoids shell escaping issues with newlines)
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+            f.write(prompt)
+            prompt_file = f.name
         
         try:
-            logger.debug(f"Running: {' '.join(cmd[:5])}...")
-            
+            # Build command using -f for file input
+            # Key flags:
+            # -no-cnv: Disable conversation/chat mode for raw completion
+            # --no-display-prompt: Don't echo the prompt in output
+            # --simple-io: Better compatibility for subprocess usage
+            cmd = [
+                str(self.llama_bin),
+                "-m", str(self.model_path),
+                "-f", prompt_file,
+                "-n", str(max_tokens),
+                "--temp", str(temperature),
+                "-c", "4096",
+                "-no-cnv",
+                "--no-display-prompt",
+                "--simple-io",
+                "-ngl", "0",
+            ]
+
+            logger.info(f"Running LLM with prompt file...")
+
             result = subprocess.run(
                 cmd,
                 capture_output=True,
-                text=True,
-                timeout=120  # 2 minute timeout
+                timeout=120,
+                stdin=subprocess.DEVNULL,  # Send EOF to exit after generation
+                env={**os.environ, "TOKENIZERS_PARALLELISM": "false"}
             )
-            
+
+            # Decode with error handling for non-UTF8 chars in stderr (progress bars, etc.)
+            stdout = result.stdout.decode('utf-8', errors='replace')
+            stderr = result.stderr.decode('utf-8', errors='replace')
+
             if result.returncode != 0:
-                logger.error(f"LLM error: {result.stderr}")
-                return f"Error generating response: {result.stderr[:200]}"
-            
-            response = result.stdout.strip()
-            return response
+                logger.error(f"LLM error: {stderr}")
+                raise RuntimeError(f"LLM failed: {stderr[:500]}")
+
+            output = stdout.strip()
+
+            # Clean up EOS token markers from output
+            for eos_marker in ["[end of text]", "<|endoftext|>", "<|im_end|>"]:
+                if output.endswith(eos_marker):
+                    output = output[:-len(eos_marker)].strip()
+
+            logger.info(f"LLM output length: {len(output)} chars")
+            return output
             
         except subprocess.TimeoutExpired:
-            logger.error("LLM generation timed out")
-            return "Response generation timed out. Please try a simpler question."
-        except Exception as e:
-            logger.error(f"LLM error: {e}")
-            return f"Error: {str(e)}"
+            raise RuntimeError("LLM generation timed out (120s)")
+        finally:
+            # Clean up temp file
+            try:
+                os.unlink(prompt_file)
+            except:
+                pass
     
-    def answer_with_context(
-        self,
-        question: str,
-        context: str,
-        template: Optional[str] = None
-    ) -> str:
+    def answer_with_context(self, question: str, context: str) -> str:
         """
-        Generate an answer using RAG context.
+        Generate an answer to a question using RAG context.
         
         Args:
             question: User's question
             context: Retrieved context from documents
-            template: Optional custom prompt template
         
         Returns:
             Generated answer
         """
-        template = template or CONTEXT_TEMPLATE
-        
-        prompt = template.format(
-            context=context,
-            question=question
-        )
-        
-        return self.generate(
-            prompt,
-            stop_sequences=["Question:", "Context:", "\n\n---"]
-        )
+        prompt = CONTEXT_TEMPLATE.format(context=context, question=question)
+        return self.generate(prompt)
     
     def is_available(self) -> bool:
-        """Check if LLM is ready to use"""
-        return self.llama_bin.exists() and self.model_path.exists()
+        """Check if LLM is ready"""
+        return (
+            self.llama_bin is not None and
+            self.llama_bin.exists() and
+            self.model_path.exists()
+        )
     
-    def get_info(self) -> Dict[str, Any]:
-        """Get model information"""
+    def get_info(self) -> dict:
+        """Get engine information"""
         return {
-            'model': self.model_path.name,
-            'model_size': f"{self.model_path.stat().st_size / 1e9:.1f} GB" if self.model_path.exists() else "N/A",
-            'runner': self.llama_bin.name,
-            'available': self.is_available()
+            'model': self.model_path.name if self.model_path else None,
+            'runner': str(self.llama_bin) if self.llama_bin else None,
+            'available': self.is_available(),
+            'max_tokens': self.max_new_tokens,
+            'temperature': self.temperature
         }
 
 
 class MockLLMEngine:
-    """
-    Mock LLM for testing without actual model.
-    Useful for UI development and testing.
-    """
+    """Mock LLM for testing without models"""
     
-    def generate(self, prompt: str, **kwargs) -> str:
-        return f"[Mock response to: {prompt[:50]}...]"
+    def __init__(self, *args, **kwargs):
+        logger.info("Using MockLLMEngine - no real inference")
     
-    def answer_with_context(self, question: str, context: str, **kwargs) -> str:
-        # Extract some info from context for a semi-realistic mock
-        if "income" in question.lower() or "w2" in question.lower():
-            return (
-                "Based on your W-2 documents:\n"
-                "• Total wages: $185,000\n"
-                "• Federal tax withheld: $42,500\n"
-                "\nNote: This is mock data for testing."
-            )
-        return f"[Mock answer based on {len(context)} chars of context]"
+    def generate(self, prompt: str, max_tokens: int = None, temperature: float = None) -> str:
+        return f"[Mock response] This is a test response. In production, this would be generated by LFM2-1.2B based on your documents."
+    
+    def answer_with_context(self, question: str, context: str) -> str:
+        return f"[Mock answer to: {question}]\n\nThis is a mock response. Install llama.cpp and download LFM2-1.2B for real answers.\n\nContext preview: {context[:200]}..."
     
     def is_available(self) -> bool:
         return True
     
-    def get_info(self) -> Dict[str, Any]:
-        return {'model': 'Mock LLM', 'available': True}
+    def get_info(self) -> dict:
+        return {
+            'model': 'mock',
+            'runner': 'mock',
+            'available': True,
+            'max_tokens': 512,
+            'temperature': 0.3
+        }
 
 
 # Quick test
@@ -210,14 +214,14 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     
     try:
-        llm = LLMEngine()
-        print(f"LLM Info: {llm.get_info()}")
+        engine = LLMEngine()
+        print(f"Engine info: {engine.get_info()}")
         
-        # Test simple generation
-        response = llm.generate("What is 2 + 2?", max_tokens=50)
-        print(f"Response: {response}")
-    except FileNotFoundError as e:
-        print(f"Setup needed: {e}")
-        print("\nUsing mock LLM for testing...")
-        llm = MockLLMEngine()
-        print(f"Mock info: {llm.get_info()}")
+        if engine.is_available():
+            response = engine.generate("What is 2+2? Answer briefly:")
+            print(f"Response: {response}")
+    except Exception as e:
+        print(f"Error: {e}")
+        print("Using mock engine...")
+        engine = MockLLMEngine()
+        print(engine.generate("test"))
