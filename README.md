@@ -415,6 +415,54 @@ Test without models: `python main.py --mock`
 
 ---
 
+## Roadmap & Future Improvements
+
+### Model & Accuracy
+| Improvement | Description | Impact |
+|-------------|-------------|--------|
+| Larger LFM2 models | Upgrade to 3B+ parameter variants when available | Higher quality answers |
+| Reranking | Add cross-encoder reranking after initial retrieval | Better source selection |
+| Query expansion | Rephrase queries for better semantic matching | Improved recall |
+| Hybrid search | Combine semantic + keyword (BM25) search | Catch exact matches |
+| Better chunking | Semantic chunking instead of fixed-size | More coherent context |
+
+### Performance & Latency
+| Improvement | Description | Impact |
+|-------------|-------------|--------|
+| GPU offloading | Use `-ngl` flag for Metal acceleration | 2-3x faster inference |
+| Embedding cache | Cache document embeddings to disk | Faster reindexing |
+| Streaming responses | Stream LLM output token-by-token | Better perceived latency |
+| Batch embeddings | Process multiple chunks in parallel | Faster indexing |
+
+### Storage & Scalability
+| Improvement | Description | Impact |
+|-------------|-------------|--------|
+| SQLite + vec extension | Replace NumPy with sqlite-vec | Better for large collections |
+| LanceDB | Embedded vector DB with disk-backed storage | Scale to 100K+ docs |
+| Incremental indexing | Only reindex changed documents | Faster updates |
+| Index compression | Quantize embeddings (int8) | 4x smaller index |
+
+### App Experience
+| Improvement | Description | Impact |
+|-------------|-------------|--------|
+| Document preview | View source snippets in context | Easier verification |
+| Conversation history | Persist chat sessions | Resume later |
+| Export answers | Copy/export to Markdown, PDF | Share findings |
+| Keyboard shortcuts | Full keyboard navigation | Power user efficiency |
+| Multi-language | Support non-English documents | Broader use cases |
+
+### Reliability
+| Improvement | Description | Impact |
+|-------------|-------------|--------|
+| Error recovery | Graceful handling of corrupt files | Better UX |
+| Progress indicators | Show indexing/generation progress | User confidence |
+| Health checks | Verify model/backend status on startup | Fewer surprises |
+| Logging | Structured logs for debugging | Easier troubleshooting |
+
+Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+---
+
 ## License
 
 MIT License - See [LICENSE](LICENSE)
