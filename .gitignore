@@ -1,0 +1,45 @@
+# Private Doc Q&A - .gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+ENV/
+env/
+
+# Models (large files - download separately)
+models/*.gguf
+models/*.bin
+
+# Runners (platform-specific binaries)
+runners/
+
+# User data (private!)
+data/docs/
+data/index/
+
+# Keep data directory structure
+!data/.gitkeep
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Logs
+*.log
+output/
+
+# Temp files
+*.tmp
+*.temp
