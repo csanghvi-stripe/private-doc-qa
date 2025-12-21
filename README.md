@@ -180,7 +180,7 @@ Questions you can ask:
 ### Step 1: Clone Repository
 
 ```bash
-git clone https://github.com/yourusername/private-doc-qa.git
+git clone https://github.com/csanghvi-stripe/private-doc-qa.git
 cd private-doc-qa
 ```
 
