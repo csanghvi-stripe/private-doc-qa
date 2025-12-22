@@ -11,6 +11,8 @@ venv/
 ENV/
 env/
 
+CLAUDE.md
+
 # Models (large files - download separately)
 models/*.gguf
 models/*.bin
