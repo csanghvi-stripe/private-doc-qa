@@ -1,7 +1,4 @@
-"""
-Document Store - Load, chunk, embed, and index documents
-All processing happens locally on-device.
-"""
+"""Document chunking, embedding, and vector search."""
 import json
 import hashlib
 import logging
@@ -23,20 +20,15 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class DocumentChunk:
-    """A chunk of a document with its embedding"""
-    id: str                     # Unique chunk ID
-    source: str                 # Original filename
-    text: str                   # Chunk text content
-    page: Optional[int]         # Page number (if applicable)
-    chunk_index: int            # Position in document
-    embedding: Optional[List[float]] = None  # Vector embedding
+    id: str
+    source: str
+    text: str
+    page: Optional[int]
+    chunk_index: int
+    embedding: Optional[List[float]] = None
 
 
 class DocumentStore:
-    """
-    Manages document ingestion, chunking, and vector storage.
-    Everything is stored locally in SQLite + numpy arrays.
-    """
     
     def __init__(self, index_path: Optional[Path] = None):
         self.index_path = index_path or INDEX_DIR

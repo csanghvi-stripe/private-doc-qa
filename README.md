@@ -1,485 +1,214 @@
 # Private Doc Q&A
 
-<div align="center">
+Query your private documents (tax returns, medical records, contracts) with AI — 100% on-device. Nothing is ever uploaded.
 
-![Private Doc Q&A](https://img.shields.io/badge/100%25-On_Device-green?style=for-the-badge)
-![Privacy First](https://img.shields.io/badge/Privacy-First-blue?style=for-the-badge)
-![Powered by LFM2](https://img.shields.io/badge/Powered_by-Liquid_AI-purple?style=for-the-badge)
+Built with [Liquid AI's LFM2](https://www.liquid.ai/) models running locally via llama.cpp.
 
-**Ask questions about your private documents using voice or text.**  
-**All processing happens locally — nothing is ever uploaded.**
+## Why this exists
 
-[Features](#features) • [Installation](#installation) • [Usage](#usage) • [Architecture](#architecture) • [FAQ](#faq)
-
-</div>
-
----
-
-## The Problem
-
-You have sensitive documents — tax returns, medical records, legal contracts, financial statements — and you want to query them with AI. But:
-
-- **ChatGPT/Claude**: You're (rightfully) scared to upload W-2s with your SSN
-- **Notion AI**: Still cloud-based, still a privacy concern
-- **Local PDF readers**: No intelligence, just Ctrl+F
-- **Enterprise RAG solutions**: $50K+ and require IT teams
-
-**Private Doc Q&A solves this.** Run state-of-the-art AI models entirely on your Mac. Your documents never leave your device. Ever.
-
----
+I wanted to ask questions about my W-2s, medical records, and contracts without uploading them to ChatGPT or Claude. Existing solutions are either cloud-based (privacy concern) or enterprise-only ($50K+). This runs entirely on a Mac with zero network calls after setup.
 
 ## Features
 
-### 🔒 100% On-Device Processing
-Every computation happens locally using [Liquid AI's LFM2](https://www.liquid.ai/) models. No API keys. No cloud calls. No telemetry. Works offline after initial setup.
+- **100% local processing** — All AI inference happens on-device using LFM2 models. No API keys, no cloud, works offline.
+- **Voice and text input** — Ask questions naturally. LFM2-Audio handles transcription locally (~300ms latency).
+- **Multi-document search** — Index PDFs, DOCX, TXT files and query across all of them at once.
+- **Source citations** — Every answer shows which document(s) and page(s) it came from, with confidence scores.
+- **Native Mac app** — Tauri-based desktop app with drag-and-drop, or use the CLI.
 
-### 🎤 Voice & Text Input
-Ask questions by typing or speaking. LFM2-Audio transcribes your voice locally with ~300ms latency.
+## Architecture
 
-### 📄 Multi-Document Search
-Index entire folders of documents. Ask questions that span multiple files:
-> "What's my total income across all W-2s?"
+```mermaid
+flowchart TB
+    subgraph Desktop["Desktop App (Tauri)"]
+        UI[React UI]
+        Rust[Rust Bridge]
+    end
 
-### 📎 Source Citations
-Every answer includes which document(s) it came from, with page numbers and confidence scores. Verify anything instantly.
+    subgraph Backend["Python Backend"]
+        DS[Document Store]
+        RAG[RAG Engine]
+        LLM[LLM Engine]
+        Audio[Audio Engine]
+    end
 
-### ⚡ Fast Retrieval
-Semantic search using local embeddings (MiniLM). Find relevant information in milliseconds, even across hundreds of documents.
+    subgraph Storage["Local Storage"]
+        Embeddings[(Embeddings<br/>NumPy + JSON)]
+        Models[(GGUF Models)]
+    end
 
-### 🖥️ Native Mac App
-Beautiful Tauri-based desktop app with drag-and-drop, keyboard shortcuts, and native macOS integration.
+    UI <-->|IPC| Rust
+    Rust <-->|JSON-RPC| DS
+    Rust <-->|JSON-RPC| RAG
+    Rust <-->|JSON-RPC| Audio
 
----
-
-## Use Cases
-
-<details>
-<summary><b>💰 Tax Preparation</b></summary>
-
-```
-Documents: W-2s, 1099s, HSA statements, mortgage interest, charitable donations
-
-Questions you can ask:
-• "What was my total income across all employers?"
-• "How much did I contribute to my HSA this year?"
-• "What's my total student loan interest paid?"
-• "List all my charitable donations over $250"
-• "What's my capital gains from stock sales?"
-```
-
-**Why local matters:** SSNs, income details, and employer information are prime targets for identity theft.
-</details>
-
-<details>
-<summary><b>🏥 Medical Records</b></summary>
-
-```
-Documents: Lab results, prescription history, doctor's notes, insurance EOBs
-
-Questions you can ask:
-• "What was my A1C trend over the last 2 years?"
-• "What medications am I currently prescribed?"
-• "What vaccinations am I due for?"
-• "Summarize my last cardiology visit"
-• "What's my family medical history?"
+    DS --> Embeddings
+    RAG --> DS
+    RAG --> LLM
+    LLM --> Models
+    Audio --> Models
 ```
 
-**Why local matters:** HIPAA exists for a reason. Medical records are among the most sensitive personal data.
-</details>
+### Query Flow
 
-<details>
-<summary><b>⚖️ Legal & Contracts</b></summary>
+```mermaid
+sequenceDiagram
+    participant User
+    participant UI as React UI
+    participant RAG as RAG Engine
+    participant Store as Document Store
+    participant LLM as LFM2 (llama.cpp)
 
+    User->>UI: Ask question
+    UI->>RAG: query(question)
+    RAG->>Store: embed(question)
+    Store-->>RAG: query embedding
+    RAG->>Store: search(embedding, top_k=5)
+    Store-->>RAG: relevant chunks
+    RAG->>LLM: generate(context + question)
+    LLM-->>RAG: answer
+    RAG-->>UI: answer + sources
+    UI-->>User: Display with citations
 ```
-Documents: Leases, employment contracts, NDAs, divorce decrees, HOA docs
-
-Questions you can ask:
-• "When does my lease expire?"
-• "What's the early termination penalty?"
-• "What's my non-compete clause?"
-• "What are my stock vesting terms?"
-• "What's covered under my homeowner's insurance?"
-```
-
-**Why local matters:** Active legal matters, confidential employment terms, and binding agreements shouldn't be uploaded anywhere.
-</details>
-
-<details>
-<summary><b>💼 Business & Finance</b></summary>
-
-```
-Documents: Term sheets, cap tables, board minutes, investment statements
-
-Questions you can ask:
-• "What's my diluted ownership after Series B?"
-• "What were the Q3 revenue numbers?"
-• "When is my next board meeting?"
-• "What's my total 401k balance?"
-• "Compare my investment returns across accounts"
-```
-
-**Why local matters:** Material non-public information, NDA-protected documents, and insider knowledge require strict confidentiality.
-</details>
-
----
-
-## Screenshots
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│  Private Doc Q&A                                        ─  □  ×    │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                     │
-│  📁 Documents (4 indexed)                              [+ Add]     │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │ 📄 2024_W2_Google.pdf                    12 chunks   ✓     │   │
-│  │ 📄 2024_W2_Stripe.pdf                     8 chunks   ✓     │   │
-│  │ 📄 Apartment_Lease.pdf                   24 chunks   ✓     │   │
-│  │ 📄 Employment_Contract.pdf               18 chunks   ✓     │   │
-│  └─────────────────────────────────────────────────────────────┘   │
-│                                                                     │
-│  ───────────────────────────────────────────────────────────────   │
-│                                                                     │
-│  💬 What's my total W2 income for 2024?                            │
-│                                                                     │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │ 🤖 Based on your W-2 documents:                              │   │
-│  │                                                               │   │
-│  │    • Google: $185,000                                        │   │
-│  │    • Stripe: $92,500 (partial year)                          │   │
-│  │    • Total: $277,500                                         │   │
-│  │                                                               │   │
-│  │ 📎 Sources:                                                  │   │
-│  │    2024_W2_Google.pdf (p1) · 2024_W2_Stripe.pdf (p1)        │   │
-│  │    Confidence: 92%                                           │   │
-│  └─────────────────────────────────────────────────────────────┘   │
-│                                                                     │
-│  ┌─────────────────────────────────────────────────────────┐  🎤  │
-│  │ Ask a question...                                        │      │
-│  └─────────────────────────────────────────────────────────┘      │
-│                                                                     │
-│  🔒 100% on-device  •  Never uploaded  •  Works offline            │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
----
 
 ## Installation
 
-### Prerequisites
+### Requirements
 
-| Requirement | Version | Notes |
-|-------------|---------|-------|
-| macOS | 12+ | Apple Silicon (M1/M2/M3/M4) |
-| RAM | 8GB+ | 16GB recommended |
-| Python | 3.10+ | For backend |
-| Node.js | 18+ | For desktop app |
-| Rust | Latest | For Tauri |
-| Disk Space | ~5GB | Models + app |
+- macOS 12+ on Apple Silicon (M1/M2/M3/M4)
+- 8GB RAM minimum (16GB recommended)
+- Python 3.10+
+- Node.js 18+
+- Rust (for Tauri)
+- ~5GB disk space for models
 
-### Step 1: Clone Repository
+### Setup
 
 ```bash
+# 1. Clone
 git clone https://github.com/csanghvi-stripe/private-doc-qa.git
 cd private-doc-qa
-```
 
-### Step 2: Install Rust (if needed)
-
-```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-source $HOME/.cargo/env
-```
-
-### Step 3: Run Setup
-
-```bash
+# 2. Run setup (creates dirs, installs Python deps)
 python setup.py
-```
 
-This will:
-- Create necessary directories
-- Install Python dependencies
-- Verify your environment
-- Tell you what models to download
+# 3. Download models from HuggingFace to models/
+#    - LFM2-1.2B-Q4_K_M.gguf (730MB) from LiquidAI/LFM2-1.2B-GGUF
+#    - For voice: LFM2-Audio models from LiquidAI/LFM2-Audio-1.5B-GGUF
 
-### Step 4: Download Models
+# 4. Install llama.cpp
+brew install llama.cpp
 
-Download from HuggingFace and place in `models/`:
-
-| Model | Size | Download |
-|-------|------|----------|
-| LFM2-1.2B-Q4_K_M.gguf | 730 MB | [HuggingFace](https://huggingface.co/LiquidAI/LFM2-1.2B-GGUF) |
-| LFM2-Audio-1.5B-Q8_0.gguf | 1.2 GB | [HuggingFace](https://huggingface.co/LiquidAI/LFM2-Audio-1.5B-GGUF) |
-| mmproj-audioencoder-*.gguf | 317 MB | Same repo |
-| audiodecoder-*.gguf | 358 MB | Same repo |
-| llama-cli (runner) | ~5 MB | Same repo, `/runners` folder |
-
-### Step 5: Build Desktop App
-
-```bash
+# 5. Run desktop app
 cd desktop
 npm install
-npm run tauri build
+npm run tauri dev
 ```
 
-The built app will be in `desktop/src-tauri/target/release/bundle/`.
-
-### Step 6: Run
-
-```bash
-# Desktop app (development)
-cd desktop && npm run tauri dev
-
-# Or CLI mode
-python main.py --index
-```
-
----
+Or use CLI mode: `python main.py`
 
 ## Usage
 
 ### Desktop App
 
-1. **Launch** the app from Applications or `npm run tauri dev`
-2. **Add documents** by dragging files into the window or clicking "+ Add"
-3. **Wait for indexing** (progress shown in real-time)
-4. **Ask questions** by typing or clicking the 🎤 microphone
-5. **View sources** by clicking on citations to open the original document
+1. Launch the app (`npm run tauri dev` or from Applications after building)
+2. Drag documents into the window or click "Add Documents"
+3. Wait for indexing (progress shown in sidebar)
+4. Type or speak your question
+5. View answer with source citations
 
-### Keyboard Shortcuts
-
-| Shortcut | Action |
-|----------|--------|
-| `⌘ + N` | New question |
-| `⌘ + O` | Add documents |
-| `⌘ + K` | Focus search |
-| `⌘ + M` | Toggle voice input |
-| `⌘ + ,` | Settings |
-| `Esc` | Cancel/Clear |
-
-### CLI Mode
+### CLI
 
 ```bash
-# Interactive mode
-python main.py
-
-# With custom docs folder
-python main.py --docs ~/Documents/taxes
-
-# Auto-index on startup
-python main.py --index
-
-# Test without models
-python main.py --mock
-
-# Verbose logging
-python main.py -v
+python main.py                    # Interactive mode
+python main.py --docs ~/taxes     # Custom docs folder
+python main.py --mock             # Test without models
+python main.py -v                 # Verbose logging
 ```
 
----
-
-## Architecture
-
-### System Overview
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           Private Doc Q&A                                    │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │                      TAURI DESKTOP APP                               │    │
-│  │                                                                      │    │
-│  │  ┌─────────────┐    ┌─────────────┐    ┌─────────────────────────┐ │    │
-│  │  │  React UI   │◄──►│ Rust/Tauri  │◄──►│   Python Backend        │ │    │
-│  │  │ (Frontend)  │IPC │  (Bridge)   │JSON│   (AI Processing)       │ │    │
-│  │  └─────────────┘    └─────────────┘    └─────────────────────────┘ │    │
-│  └─────────────────────────────────────────────────────────────────────┘    │
-│                                      │                                       │
-│  ════════════════════════════════════╪═══════════════════════════════════   │
-│                                      │                                       │
-│  ┌───────────────────────────────────▼───────────────────────────────────┐  │
-│  │                         PYTHON BACKEND                                 │  │
-│  │                                                                        │  │
-│  │  ┌──────────────┐   ┌──────────────┐   ┌──────────────────────────┐  │  │
-│  │  │ Audio Engine │   │ Document     │   │ RAG Engine               │  │  │
-│  │  │              │   │ Store        │   │                          │  │  │
-│  │  │ • Record     │   │              │   │ • Embed query            │  │  │
-│  │  │ • Transcribe │   │ • Parse      │   │ • Vector search          │  │  │
-│  │  │   (LFM2-     │   │ • Chunk      │   │ • Build context          │  │  │
-│  │  │    Audio)    │   │ • Embed      │   │ • Track sources          │  │  │
-│  │  │              │   │ • Index      │   │                          │  │  │
-│  │  └──────┬───────┘   └──────┬───────┘   └────────────┬─────────────┘  │  │
-│  │         │                  │                        │                 │  │
-│  │         │                  │                        │                 │  │
-│  │         │           ┌──────▼───────┐                │                 │  │
-│  │         │           │ Vector Store │                │                 │  │
-│  │         │           │ (SQLite +    │◄───────────────┘                 │  │
-│  │         │           │  NumPy)      │                                  │  │
-│  │         │           └──────────────┘                                  │  │
-│  │         │                                                             │  │
-│  │         │           ┌──────────────┐                                  │  │
-│  │         └──────────►│ LLM Engine   │                                  │  │
-│  │                     │              │                                  │  │
-│  │   Question ────────►│ • LFM2-1.2B  │──────► Answer + Citations       │  │
-│  │   + Context         │ • llama.cpp  │                                  │  │
-│  │                     │              │                                  │  │
-│  │                     └──────────────┘                                  │  │
-│  └────────────────────────────────────────────────────────────────────────┘  │
-│                                                                              │
-└──────────────────────────────────────────────────────────────────────────────┘
-```
-
-### Project Structure
+## Project Structure
 
 ```
 private-doc-qa/
-├── README.md                    # This file
-├── setup.py                     # Setup script
-├── requirements.txt             # Python dependencies
-├── main.py                      # CLI entry point
-├── config.py                    # Configuration
-│
-├── core/                        # Python backend
-│   ├── document_store.py        # Indexing & storage
-│   ├── rag_engine.py            # Retrieval
-│   ├── llm_engine.py            # LFM2 inference
-│   └── audio_engine.py          # Voice input
-│
-├── parsers/                     # Document parsers
-│   ├── pdf_parser.py
-│   ├── docx_parser.py
-│   └── text_parser.py
-│
-├── ui/                          # CLI interface
-│   └── cli.py
-│
-├── desktop/                     # Tauri Mac app
-│   ├── src/                     # React frontend
-│   │   ├── App.tsx
-│   │   ├── components/
-│   │   └── hooks/
-│   ├── src-tauri/               # Rust backend
-│   │   ├── src/main.rs
-│   │   └── Cargo.toml
-│   └── package.json
-│
-├── models/                      # AI models (git-ignored)
-└── data/                        # User data (git-ignored)
-    ├── docs/
-    └── index/
+├── core/                    # Python backend
+│   ├── document_store.py    # Chunking, embeddings, vector search
+│   ├── rag_engine.py        # Retrieval-augmented generation
+│   ├── llm_engine.py        # LFM2 inference via llama.cpp
+│   └── audio_engine.py      # Voice transcription
+├── parsers/                 # PDF, DOCX, TXT parsing
+├── desktop/                 # Tauri + React app
+│   ├── src/                 # React frontend
+│   └── src-tauri/           # Rust bridge to Python
+├── models/                  # GGUF files (gitignored)
+└── data/                    # User documents & index (gitignored)
 ```
-
----
 
 ## Performance
 
-| Operation | Latency | Hardware |
-|-----------|---------|----------|
-| Index 1 page | ~2s | M1 Pro |
-| Voice transcription | ~300ms | M1 Pro |
-| Vector search | <50ms | Any |
-| Answer generation | 500-1500ms | M1 Pro |
-| **Total query** | **<2s** | M1 Pro |
+Tested on M4 Pro with Apple silicon using llama.cpp:
 
-Memory usage: ~4GB when running
+- **Indexing:** ~2s per page
+- **Voice transcription:** ~300ms
+- **Vector search:** <50ms
+- **Answer generation:** 500-1500ms
+- **Total query time:** <2s
 
----
+Memory usage: ~4GB while running
 
-## Privacy Guarantee
+## Privacy
 
-| Data | Location | Uploaded? |
-|------|----------|-----------|
-| Documents | `data/docs/` | ❌ Never |
-| Index | `data/index/` | ❌ Never |
-| Queries | Memory only | ❌ Never |
-| Audio | Temp file, deleted | ❌ Never |
-| Answers | Memory only | ❌ Never |
+All data stays on your machine:
 
-**Zero network calls.** Works in airplane mode.
+- Documents stored in `data/docs/`
+- Embeddings stored in `data/index/`
+- Queries exist only in memory
+- Audio recordings are temp files, deleted after transcription
+- Zero network calls after initial model download
 
----
+Works in airplane mode.
+
+## Limitations & Roadmap
+
+This is a working prototype. Known limitations and planned improvements:
+
+**Accuracy**
+- [ ] Add reranking (cross-encoder) for better source selection
+- [ ] Hybrid search (semantic + BM25) for exact matches
+- [ ] Smarter chunking that respects document structure
+
+**Performance**
+- [ ] GPU offloading via Metal (currently CPU-only)
+- [ ] Streaming responses
+- [ ] Embedding cache for faster re-indexing
+
+**Scalability**
+- [ ] Replace NumPy with sqlite-vec or LanceDB
+- [ ] Incremental indexing (only changed files)
+
+**UX**
+- [ ] Document preview in context
+- [ ] Conversation history persistence
+- [ ] Export answers to markdown/PDF
 
 ## Troubleshooting
 
 | Problem | Solution |
 |---------|----------|
-| Model not found | Download GGUFs to `models/` |
-| Runner not found | Download llama-cli to `runners/macos-arm64/` |
-| Out of memory | Close apps, use Q4 quantization |
+| Model not found | Download GGUF files to `models/` |
+| Runner not found | `brew install llama.cpp` |
+| Out of memory | Close other apps, model needs ~4GB |
 | Slow indexing | Normal for large PDFs with tables |
-| No voice input | Check microphone permissions |
+| No voice input | Check microphone permissions in System Settings |
 
 Test without models: `python main.py --mock`
 
----
+## Acknowledgments
 
-## Roadmap & Future Improvements
-
-### Model & Accuracy
-| Improvement | Description | Impact |
-|-------------|-------------|--------|
-| Larger LFM2 models | Upgrade to 3B+ parameter variants when available | Higher quality answers |
-| Reranking | Add cross-encoder reranking after initial retrieval | Better source selection |
-| Query expansion | Rephrase queries for better semantic matching | Improved recall |
-| Hybrid search | Combine semantic + keyword (BM25) search | Catch exact matches |
-| Better chunking | Semantic chunking instead of fixed-size | More coherent context |
-
-### Performance & Latency
-| Improvement | Description | Impact |
-|-------------|-------------|--------|
-| GPU offloading | Use `-ngl` flag for Metal acceleration | 2-3x faster inference |
-| Embedding cache | Cache document embeddings to disk | Faster reindexing |
-| Streaming responses | Stream LLM output token-by-token | Better perceived latency |
-| Batch embeddings | Process multiple chunks in parallel | Faster indexing |
-
-### Storage & Scalability
-| Improvement | Description | Impact |
-|-------------|-------------|--------|
-| SQLite + vec extension | Replace NumPy with sqlite-vec | Better for large collections |
-| LanceDB | Embedded vector DB with disk-backed storage | Scale to 100K+ docs |
-| Incremental indexing | Only reindex changed documents | Faster updates |
-| Index compression | Quantize embeddings (int8) | 4x smaller index |
-
-### App Experience
-| Improvement | Description | Impact |
-|-------------|-------------|--------|
-| Document preview | View source snippets in context | Easier verification |
-| Conversation history | Persist chat sessions | Resume later |
-| Export answers | Copy/export to Markdown, PDF | Share findings |
-| Keyboard shortcuts | Full keyboard navigation | Power user efficiency |
-| Multi-language | Support non-English documents | Broader use cases |
-
-### Reliability
-| Improvement | Description | Impact |
-|-------------|-------------|--------|
-| Error recovery | Graceful handling of corrupt files | Better UX |
-| Progress indicators | Show indexing/generation progress | User confidence |
-| Health checks | Verify model/backend status on startup | Fewer surprises |
-| Logging | Structured logs for debugging | Easier troubleshooting |
-
-Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
----
+- [Liquid AI](https://www.liquid.ai/) — LFM2 models
+- [llama.cpp](https://github.com/ggml-org/llama.cpp) — Local inference
+- [Tauri](https://tauri.app/) — Desktop framework
+- [sentence-transformers](https://www.sbert.net/) — Embeddings
 
 ## License
 
-MIT License - See [LICENSE](LICENSE)
-
----
-
-## Acknowledgments
-
-- [Liquid AI](https://www.liquid.ai/) - LFM2 models
-- [llama.cpp](https://github.com/ggml-org/llama.cpp) - Local inference
-- [Tauri](https://tauri.app/) - Desktop framework
-- [sentence-transformers](https://www.sbert.net/) - Embeddings
-
----
-
-<div align="center">
-
-**Built with ❤️ for privacy**
-
-</div>
+MIT
